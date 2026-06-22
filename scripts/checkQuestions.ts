@@ -4,9 +4,10 @@ import {
   mockModes,
   mockQuestionBank,
   practiceQuestionBank,
+  questionBlueprintCount,
   selectMockExamQuestions,
 } from "../src/data/questions";
-import type { Difficulty, DomainId } from "../src/types";
+import type { Difficulty, DomainId, Question } from "../src/types";
 
 const expectedPractice = {
   total: 2400,
@@ -36,11 +37,78 @@ function assertNoCorrectAnswerCycle(label: string, questions: Array<{ id: string
   }
 }
 
+function normalizePrompt(prompt: string) {
+  return prompt
+    .toLowerCase()
+    .replace(/\b(?:practice|simulation|advanced simulation|pressure-test|mock|case|item)\b/g, " ")
+    .replace(/\b(?:case|question)\s+[a-z0-9-]+\b/g, " ")
+    .replace(/\b\d+\b/g, "#")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function assertUniquePrompts(label: string, questions: Question[]) {
+  const seen = new Map<string, string>();
+  for (const question of questions) {
+    const previous = seen.get(question.prompt);
+    if (previous) {
+      throw new Error(`${label}: exact prompt overlap between ${previous} and ${question.id}`);
+    }
+    seen.set(question.prompt, question.id);
+  }
+}
+
+function assertUniqueNormalizedPrompts(label: string, questions: Question[]) {
+  const seen = new Map<string, string>();
+  for (const question of questions) {
+    const normalized = normalizePrompt(question.prompt);
+    const previous = seen.get(normalized);
+    if (previous) {
+      throw new Error(`${label}: normalized prompt overlap between ${previous} and ${question.id}: ${normalized}`);
+    }
+    seen.set(normalized, question.id);
+  }
+}
+
+function assertMinimumBlueprintCoverage(label: string, questions: Question[], expectedMinimum: number) {
+  const uniqueTopicSources = new Set(questions.map((question) => `${question.sourceTopic}::${question.topic}`));
+  if (uniqueTopicSources.size < expectedMinimum) {
+    throw new Error(`${label}: expected at least ${expectedMinimum} unique topic/source blueprints, found ${uniqueTopicSources.size}`);
+  }
+}
+
+function assertAnswerDistribution(label: string, questions: Question[]) {
+  if (questions.length < 100) return;
+
+  const counts = [0, 0, 0, 0];
+  for (const question of questions) {
+    counts[question.correctIndex] += 1;
+  }
+
+  const min = Math.floor(questions.length * 0.17);
+  const max = Math.ceil(questions.length * 0.33);
+  counts.forEach((count, index) => {
+    if (count < min || count > max) {
+      throw new Error(`${label}: answer ${index} appears ${count} times; expected between ${min} and ${max}`);
+    }
+  });
+}
+
 const practiceStats = getQuestionStats(practiceQuestionBank);
 assertEqual("practice total", practiceStats.total, expectedPractice.total);
+assertEqual("question blueprint count", questionBlueprintCount, 124);
+assertMinimumBlueprintCoverage("practice blueprint coverage", practiceQuestionBank, 120);
+assertUniquePrompts("practice prompts", practiceQuestionBank);
+assertUniqueNormalizedPrompts("practice normalized prompts", practiceQuestionBank);
+assertAnswerDistribution("practice answer distribution", practiceQuestionBank);
 
 for (const [domain, count] of Object.entries(expectedPractice.byDomain)) {
   assertEqual(`practice ${domain}`, practiceStats.byDomain[domain as DomainId], count);
+  assertAnswerDistribution(
+    `practice ${domain} answer distribution`,
+    practiceQuestionBank.filter((question) => question.domainId === domain),
+  );
 }
 
 for (const [difficulty, count] of Object.entries(expectedPractice.byDifficulty)) {
@@ -74,6 +142,16 @@ if (overlappingPrompt) {
   throw new Error(`Mock question prompt overlaps with practice prompt: ${overlappingPrompt.id}`);
 }
 
+const practiceNormalizedPrompts = new Set(practiceQuestionBank.map((question) => normalizePrompt(question.prompt)));
+const overlappingNormalizedPrompt = mockQuestionBank.find((question) => practiceNormalizedPrompts.has(normalizePrompt(question.prompt)));
+if (overlappingNormalizedPrompt) {
+  throw new Error(`Mock question normalized prompt overlaps with practice prompt: ${overlappingNormalizedPrompt.id}`);
+}
+
+assertUniquePrompts("mock prompts", mockQuestionBank);
+assertUniqueNormalizedPrompts("mock normalized prompts", mockQuestionBank);
+assertAnswerDistribution("mock answer distribution", mockQuestionBank);
+
 const mockStats = getMockStats();
 for (const mode of mockModes) {
   const selected = selectMockExamQuestions(mode.id);
@@ -84,6 +162,9 @@ for (const mode of mockModes) {
   assertEqual(`${mode.id} agile`, mockStats[mode.id].byDomain.agile, 30);
   assertEqual(`${mode.id} business`, mockStats[mode.id].byDomain.business, 40);
   assertNoCorrectAnswerCycle(`${mode.id} mock`, selected);
+  assertUniquePrompts(`${mode.id} mock prompts`, selected);
+  assertUniqueNormalizedPrompts(`${mode.id} mock normalized prompts`, selected);
+  assertAnswerDistribution(`${mode.id} mock answer distribution`, selected);
   for (const domain of Object.keys(expectedPractice.byDomain) as DomainId[]) {
     assertNoCorrectAnswerCycle(
       `${mode.id} ${domain} mock`,
@@ -92,7 +173,7 @@ for (const mode of mockModes) {
   }
 }
 
-const forbidden = /free-braindumps|braindumps|real exam questions|actual exam dump/i;
+const forbidden = /free-braindumps|braindumps|real exam questions|actual exam dump|leaked content|copied content|confidential questions/i;
 const copied = [...practiceQuestionBank, ...mockQuestionBank].find((question) =>
   forbidden.test(`${question.prompt} ${question.explanation}`),
 );
