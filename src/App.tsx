@@ -1135,7 +1135,9 @@ function Practice({
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-mint">
               Question {index + 1} of {questions.length}
             </p>
-            <h2 className="mt-2 text-2xl font-black">{question.topic}</h2>
+            <h2 className="mt-2 text-2xl font-black">
+              {showExplanation ? question.topic : `${domainNames[question.domainId]} practice case`}
+            </h2>
           </div>
           <span className="w-fit rounded-lg bg-paper px-3 py-2 text-sm font-black capitalize text-ink">{question.difficulty}</span>
         </div>
@@ -1164,7 +1166,14 @@ function Practice({
         {showExplanation && (
           <div className="mt-5 rounded-lg border border-line bg-paper p-4">
             <p className="font-black">{selectedAnswer === question.correctIndex ? "Correct" : "Not quite"}</p>
+            {selectedAnswer !== null && question.optionRationales?.[selectedAnswer] && (
+              <p className="mt-2 leading-6 text-slate-700">
+                <span className="font-black text-ink">Choice insight: </span>
+                {question.optionRationales[selectedAnswer]}
+              </p>
+            )}
             <p className="mt-2 leading-6 text-slate-700">{question.explanation}</p>
+            <p className="mt-2 text-sm font-bold text-ocean">Topic: {question.topic}</p>
             <p className="mt-2 text-sm font-bold text-ocean">Source topic: {question.sourceTopic}</p>
             <button onClick={onNext} className="focus-ring mt-4 inline-flex items-center gap-2 rounded-lg bg-ocean px-4 py-3 font-black text-white">
               Next question <ChevronRight size={18} />

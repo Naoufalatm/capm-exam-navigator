@@ -95,6 +95,112 @@ function assertAnswerDistribution(label: string, questions: Question[]) {
   });
 }
 
+const giveawayOptionTerms =
+  /\b(always|never|only|every|all|randomly|silently|delete|hide|ignore|skip|loudest|guess|blame|punish|shame|forever|automatically)\b/i;
+const teachingSuffix = /(^|[.!?]\s+)This\s+(is|would|sounds|skips|keeps|matches|gives|addresses|overreacts|treats|may)\b/i;
+const promptLeakage = /\b(best reflects|best addresses|item is testing|tested through|which answer survives|the trap is|distractor)\b/i;
+const clangStopWords = new Set([
+  "project",
+  "review",
+  "decision",
+  "response",
+  "stakeholder",
+  "checkpoint",
+  "delivery",
+  "evidence",
+  "working",
+  "current",
+  "planned",
+  "question",
+  "document",
+  "manager",
+  "customer",
+  "information",
+  "because",
+  "during",
+  "should",
+  "available",
+  "scenario",
+  "simulation",
+]);
+
+function wordCount(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function significantTerms(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length >= 7 && !clangStopWords.has(word));
+}
+
+function assertOptionQuality(label: string, questions: Question[]) {
+  for (const question of questions) {
+    if (question.options.length !== 4) {
+      throw new Error(`${label}: ${question.id} expected 4 answer options`);
+    }
+
+    if (!question.optionRationales || question.optionRationales.length !== question.options.length) {
+      throw new Error(`${label}: ${question.id} must include one rationale per answer option`);
+    }
+
+    const lengths = question.options.map(wordCount);
+    const maxLength = Math.max(...lengths);
+    const minLength = Math.min(...lengths);
+    if (maxLength - minLength > 10) {
+      throw new Error(`${label}: ${question.id} option length spread is ${maxLength - minLength} words`);
+    }
+
+    const correctLength = lengths[question.correctIndex];
+    const distractorAverage =
+      lengths.filter((_, index) => index !== question.correctIndex).reduce((sum, length) => sum + length, 0) / 3;
+    if (Math.abs(correctLength - distractorAverage) > 8) {
+      throw new Error(`${label}: ${question.id} correct answer length stands out`);
+    }
+
+    question.options.forEach((option, optionIndex) => {
+      if (teachingSuffix.test(option)) {
+        throw new Error(`${label}: ${question.id} option ${optionIndex + 1} contains an explanatory teaching suffix`);
+      }
+      if (giveawayOptionTerms.test(option)) {
+        throw new Error(`${label}: ${question.id} option ${optionIndex + 1} contains giveaway wording: ${option}`);
+      }
+    });
+
+    const distractorCueCount = question.options.filter(
+      (option, index) => index !== question.correctIndex && giveawayOptionTerms.test(option),
+    ).length;
+    const correctHasCue = giveawayOptionTerms.test(question.options[question.correctIndex]);
+    if (distractorCueCount === 3 && !correctHasCue) {
+      throw new Error(`${label}: ${question.id} has three cue-heavy distractors and a clean correct answer`);
+    }
+
+    for (const term of new Set(significantTerms(question.prompt))) {
+      const matchingOptions = question.options
+        .map((option, index) => ({ index, hasTerm: significantTerms(option).includes(term) }))
+        .filter((item) => item.hasTerm);
+      if (matchingOptions.length === 1 && matchingOptions[0].index === question.correctIndex) {
+        throw new Error(`${label}: ${question.id} has clang clue "${term}" only in the correct option`);
+      }
+    }
+  }
+}
+
+function assertNoPromptLeakage(label: string, questions: Question[]) {
+  for (const question of questions) {
+    const prompt = question.prompt.toLowerCase();
+    const topic = question.topic.toLowerCase();
+    if (promptLeakage.test(prompt)) {
+      throw new Error(`${label}: ${question.id} contains prompt leakage wording`);
+    }
+    if (prompt.includes(topic)) {
+      throw new Error(`${label}: ${question.id} prompt reveals topic "${question.topic}"`);
+    }
+  }
+}
+
 const practiceStats = getQuestionStats(practiceQuestionBank);
 assertEqual("practice total", practiceStats.total, expectedPractice.total);
 assertEqual("question blueprint count", questionBlueprintCount, 124);
@@ -102,6 +208,8 @@ assertMinimumBlueprintCoverage("practice blueprint coverage", practiceQuestionBa
 assertUniquePrompts("practice prompts", practiceQuestionBank);
 assertUniqueNormalizedPrompts("practice normalized prompts", practiceQuestionBank);
 assertAnswerDistribution("practice answer distribution", practiceQuestionBank);
+assertOptionQuality("practice answer quality", practiceQuestionBank);
+assertNoPromptLeakage("practice prompt leakage", practiceQuestionBank);
 
 for (const [domain, count] of Object.entries(expectedPractice.byDomain)) {
   assertEqual(`practice ${domain}`, practiceStats.byDomain[domain as DomainId], count);
@@ -151,6 +259,8 @@ if (overlappingNormalizedPrompt) {
 assertUniquePrompts("mock prompts", mockQuestionBank);
 assertUniqueNormalizedPrompts("mock normalized prompts", mockQuestionBank);
 assertAnswerDistribution("mock answer distribution", mockQuestionBank);
+assertOptionQuality("mock answer quality", mockQuestionBank);
+assertNoPromptLeakage("mock prompt leakage", mockQuestionBank);
 
 const mockStats = getMockStats();
 for (const mode of mockModes) {

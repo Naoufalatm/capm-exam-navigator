@@ -16,6 +16,7 @@ export type Question = {
   prompt: string;
   options: string[];
   correctIndex: number;
+  optionRationales?: string[];
   explanation: string;
   sourceTopic: string;
   bonus?: boolean;

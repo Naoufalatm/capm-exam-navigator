@@ -21,6 +21,14 @@ type CaseDetails = {
   trap: string;
 };
 
+type ChoiceDraft = {
+  text: string;
+  correct: boolean;
+  flawType: "key" | "timing" | "role" | "evidence" | "lifecycle" | "governance";
+  rationale: string;
+  lureStrength: number;
+};
+
 type QuestionStats = {
   total: number;
   bonus: number;
@@ -456,6 +464,21 @@ const outcomes = [
   "quality evidence",
 ];
 
+const pressureActions = [
+  "move forward using the available information",
+  "make the decision during the current checkpoint",
+  "keep the current delivery path moving",
+  "treat the stakeholder concern as the next priority",
+  "record a provisional direction for the team",
+  "defer the broader tradeoff to the next review",
+  "let the sponsor settle the immediate disagreement",
+  "update the working plan after the meeting",
+  "use the latest feedback as the main decision input",
+  "protect the committed date while the details are clarified",
+  "turn the discussion into a short action plan",
+  "continue with the planned handoff and monitor the concern",
+];
+
 const threadWords = [
   "amber",
   "blue",
@@ -485,74 +508,47 @@ const threadWords = [
   "zenith",
 ];
 
-const correctOptionSuffixes: Record<Difficulty, string[]> = {
-  easy: [
-    "This keeps the basic CAPM concept clear.",
-    "This matches the core definition before extra action is taken.",
-    "This gives the team a simple, defensible starting point.",
-  ],
-  medium: [
-    "Then confirm the decision with the affected stakeholders.",
-    "Use the current artifact to keep the decision visible.",
-    "This addresses the immediate need without skipping governance.",
-  ],
-  hard: [
-    "It balances value, evidence, timing, and stakeholder impact.",
-    "It avoids the tempting shortcut while preserving control and learning.",
-    "It handles the tradeoff before the team commits to a fragile path.",
-  ],
-};
-
-const distractorSuffixes = [
-  "This would hide the real decision point.",
-  "This sounds active but weakens evidence and alignment.",
-  "This skips the analysis the situation requires.",
-  "This overreacts to pressure instead of using the right principle.",
-  "This treats a symptom as the whole problem.",
-  "This may create rework or stakeholder confusion.",
-];
-
 const mockPromptFrames: Record<MockModeId, Record<Difficulty, string[]>> = {
   "real-case": {
     easy: [
-      "The facts are mostly direct, but the team still needs the best CAPM-aligned response.",
-      "A basic concept is being tested through a realistic project conversation.",
+      "The facts are mostly direct, but the team still needs a disciplined project response.",
+      "The team has enough information to choose a practical next step.",
     ],
     medium: [
-      "Several normal project concerns are present, and the answer must keep evidence and value aligned.",
+      "Several normal project concerns are present, and the team needs a response that fits the evidence.",
       "The team needs a practical next step that fits the role, artifact, and stakeholder need.",
     ],
     hard: [
-      "Two choices sound reasonable, but only one respects the timing, role boundaries, and project control need.",
-      "Delivery pressure is rising, and the best answer must protect both value and disciplined execution.",
+      "Multiple actions could move the work forward, but the timing and ownership matter.",
+      "Delivery pressure is rising, and the response needs to preserve value and disciplined execution.",
     ],
   },
   "beyond-real": {
     easy: [
-      "The wording is compact, and two options are intentionally close.",
-      "The scenario is simple on the surface but includes a distractor tied to the wrong lifecycle idea.",
+      "The case is compact, and the team must choose from several reasonable actions.",
+      "The situation looks simple, but the lifecycle context changes the better response.",
     ],
     medium: [
       "Predictive control, adaptive feedback, and stakeholder value are pulling on the same decision.",
-      "A quick answer would feel satisfying but would leave weak evidence for the next decision.",
+      "A fast decision would help momentum, but the next step still needs enough evidence.",
     ],
     hard: [
-      "The case blends governance, uncertainty, stakeholder influence, and value protection.",
-      "Every option has a familiar phrase, but only one fits the full context without causing avoidable rework.",
+      "Several reasonable actions compete, and the best response depends on timing and evidence.",
+      "The team is balancing momentum, uncertainty, expectations, and delivery flow.",
     ],
   },
   "must-fail": {
     easy: [
-      "The item hides a basic concept inside noisy pressure.",
-      "The trap is to answer the loud request instead of the actual principle.",
+      "The situation includes pressure, but the team still has enough facts to act.",
+      "Several stakeholders want movement, and the team needs to choose a grounded response.",
     ],
     medium: [
-      "The team is receiving conflicting signals, and several answers are partly true in another context.",
+      "The team is receiving conflicting signals from stakeholders, delivery evidence, and timing pressure.",
       "The best option must survive timing, ethics, lifecycle, and value checks.",
     ],
     hard: [
-      "This is intentionally trap-heavy: the wrong answers are useful actions at the wrong moment.",
-      "The scenario mixes partial evidence, role confusion, stakeholder pressure, and lifecycle ambiguity.",
+      "The scenario mixes useful actions with difficult timing and ownership constraints.",
+      "The scenario mixes partial evidence, role confusion, external pressure, and timing ambiguity.",
     ],
   },
 };
@@ -581,27 +577,6 @@ const mockSettings: Record<MockModeId, string[]> = {
     "multi-team failure analysis",
     "ambiguous audit challenge",
     "compressed decision window",
-  ],
-};
-
-const mockOptionSuffixes: Record<MockModeId, string[]> = {
-  "real-case": [
-    "Make the decision path visible.",
-    "Keep the next stakeholder touchpoint clear.",
-    "Align the team on the immediate implication.",
-    "Confirm how it supports the project outcome.",
-  ],
-  "beyond-real": [
-    "Check the tradeoff across scope, value, and control.",
-    "Preserve evidence for the next decision.",
-    "Do this before allowing speed to override the delivery objective.",
-    "Make stakeholder impact and rework risk explicit.",
-  ],
-  "must-fail": [
-    "Separate facts, assumptions, and pressure first.",
-    "Do not reward the loudest shortcut in the room.",
-    "Resist the partially true but mistimed response.",
-    "Test it against value, ethics, and lifecycle fit.",
   ],
 };
 
@@ -639,6 +614,71 @@ function upperFirst(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function normalizeConcept(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/^the\s+/, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const clueStopWords = new Set([
+  "project",
+  "review",
+  "decision",
+  "response",
+  "stakeholder",
+  "checkpoint",
+  "delivery",
+  "evidence",
+  "working",
+  "current",
+  "planned",
+  "question",
+  "document",
+  "manager",
+  "customer",
+  "information",
+  "because",
+  "during",
+  "should",
+  "available",
+  "scenario",
+  "simulation",
+]);
+
+function significantTerms(value: string) {
+  return normalizeConcept(value)
+    .split(" ")
+    .filter((word) => word.length >= 7 && !clueStopWords.has(word));
+}
+
+function leaksTopic(value: string, topic: string) {
+  const normalizedValue = normalizeConcept(value);
+  const normalizedTopic = normalizeConcept(topic);
+  return normalizedValue.includes(normalizedTopic) || normalizedTopic.includes(normalizedValue);
+}
+
+function leaksAnswerTerm(value: string, answer: string) {
+  const answerTerms = new Set(significantTerms(answer));
+  return significantTerms(value).some((word) => answerTerms.has(word));
+}
+
+function pickWithoutTopicLeak(items: string[], seed: number, topic: string, answer = "") {
+  let index = seed % items.length;
+  let choice = items[index];
+  let guard = 0;
+
+  while ((leaksTopic(choice, topic) || (answer && leaksAnswerTerm(choice, answer))) && guard < items.length) {
+    index = (index + 1) % items.length;
+    choice = items[index];
+    guard += 1;
+  }
+
+  return choice;
+}
+
 function caseThread(index: number) {
   const totalThreads = threadWords.length * threadWords.length * threadWords.length;
   const scrambledIndex = (index * 7919 + 104729) % totalThreads;
@@ -664,7 +704,7 @@ function balancedCorrectIndex(sequenceIndex: number, seedInput: string) {
   return permutation[sequenceIndex % 4];
 }
 
-function shuffledDistractors(items: Array<{ text: string; correct: boolean }>, seedInput: string) {
+function shuffledDistractors(items: ChoiceDraft[], seedInput: string) {
   const shuffled = items.filter((item) => !item.correct);
   let seed = hashSeed(seedInput);
 
@@ -677,7 +717,7 @@ function shuffledDistractors(items: Array<{ text: string; correct: boolean }>, s
   return shuffled;
 }
 
-function shuffleOptions(items: Array<{ text: string; correct: boolean }>, seedInput: string, sequenceIndex: number) {
+function shuffleOptions(items: ChoiceDraft[], seedInput: string, sequenceIndex: number) {
   const correct = items.find((item) => item.correct);
   if (!correct) {
     throw new Error("Question options must include one correct answer.");
@@ -686,22 +726,26 @@ function shuffleOptions(items: Array<{ text: string; correct: boolean }>, seedIn
   const correctIndex = balancedCorrectIndex(sequenceIndex, seedInput);
   const distractors = shuffledDistractors(items, seedInput);
   const options: string[] = [];
+  const optionRationales: string[] = [];
 
   for (let index = 0; index < items.length; index += 1) {
     if (index === correctIndex) {
       options.push(correct.text);
+      optionRationales.push(correct.rationale);
     } else {
       const distractor = distractors.shift();
       if (!distractor) {
         throw new Error("Question options must include three distractors.");
       }
       options.push(distractor.text);
+      optionRationales.push(distractor.rationale);
     }
   }
 
   return {
     options,
     correctIndex,
+    optionRationales,
   };
 }
 
@@ -741,21 +785,66 @@ function buildCaseDetails({
     seed = nextSeed(seed);
     return seed;
   };
+  const topic = blueprint.topic;
+  const answerText = blueprint.correct;
+  const setting = pickWithoutTopicLeak(bank === "mock" && mode ? mockSettings[mode] : settings[domainId], next(), topic, answerText);
+  const artifact = pickWithoutTopicLeak(artifacts[domainId], next(), topic, answerText);
+  const signal = pickWithoutTopicLeak(signals[domainId], next(), topic, answerText);
+  const constraint = pickWithoutTopicLeak(constraints, next(), topic, answerText);
 
   return {
     thread: caseThread(globalIndex),
-    setting: bank === "mock" && mode ? pick(mockSettings[mode], next()) : pick(settings[domainId], next()),
-    role: pick(roles[domainId], next()),
-    stakeholder: pick(stakeholders, next()),
-    artifact: pick(artifacts[domainId], next()),
-    signal: pick(signals[domainId], next()),
-    constraint: pick(constraints, next()),
-    outcome: pick(outcomes, next()),
-    trap: lowerFirst(pick(blueprint.distractors, next())),
+    setting,
+    role: pickWithoutTopicLeak(roles[domainId], next(), topic, answerText),
+    stakeholder: pickWithoutTopicLeak(stakeholders, next(), topic, answerText),
+    artifact,
+    signal,
+    constraint,
+    outcome: pickWithoutTopicLeak(outcomes, next(), topic, answerText),
+    trap: pickWithoutTopicLeak(pressureActions, next(), topic, answerText),
   };
 }
 
+function sanitizeOptionText(value: string) {
+  return lowerFirst(value)
+    .replace(/\.$/, "")
+    .replace(/\balways\b/gi, "consistently")
+    .replace(/\bnever\b/gi, "not")
+    .replace(/\bonly\b/gi, "primarily")
+    .replace(/\bevery\b/gi, "each relevant")
+    .replace(/\ball relevant\b/gi, "relevant")
+    .replace(/\ball\b/gi, "the relevant")
+    .replace(/\bignore\b/gi, "set aside")
+    .replace(/\bskip\b/gi, "defer")
+    .replace(/\bdelete\b/gi, "retire")
+    .replace(/\bhide\b/gi, "withhold")
+    .replace(/\brandomly\b/gi, "without a stated basis")
+    .replace(/\bsilently\b/gi, "without visibility")
+    .replace(/\bloudest\b/gi, "most vocal")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function selectPeerBlueprints(domainId: DomainId, blueprint: Blueprint, globalIndex: number, difficulty: Difficulty) {
+  const candidates = blueprintCatalog[domainId].filter((candidate) => candidate.topic !== blueprint.topic);
+  const offsets = difficulty === "easy" ? [3, 8, 14] : difficulty === "medium" ? [5, 11, 17] : [7, 13, 23];
+  const selected: Blueprint[] = [];
+
+  for (const offset of offsets) {
+    let candidate = candidates[(globalIndex + offset) % candidates.length];
+    let guard = 0;
+    while (selected.includes(candidate) && guard < candidates.length) {
+      candidate = candidates[(globalIndex + offset + guard + 1) % candidates.length];
+      guard += 1;
+    }
+    selected.push(candidate);
+  }
+
+  return selected.slice(0, 3);
+}
+
 function buildOptions({
+  domainId,
   blueprint,
   details,
   difficulty,
@@ -763,6 +852,7 @@ function buildOptions({
   bank,
   mode,
 }: {
+  domainId: DomainId;
   blueprint: Blueprint;
   details: CaseDetails;
   difficulty: Difficulty;
@@ -770,40 +860,55 @@ function buildOptions({
   bank: "practice" | "mock";
   mode?: MockModeId;
 }) {
-  const correctSuffix =
-    bank === "mock" && mode
-      ? pick(mockOptionSuffixes[mode], globalIndex)
-      : pick(correctOptionSuffixes[difficulty], globalIndex);
-
-  const correct = `${blueprint.correct} ${correctSuffix}`;
-  const distractors = blueprint.distractors.map((distractor, offset) => {
-    const suffix = pick(distractorSuffixes, globalIndex + offset + details.artifact.length);
-    return `${distractor} ${suffix}`;
-  });
+  const cleanAction = sanitizeOptionText(blueprint.correct);
+  const checkpoint = pick(
+    [
+      "the next checkpoint",
+      "the decision record",
+      "the team follow-up",
+      "the stakeholder review",
+      "the working plan",
+      "the delivery discussion",
+    ],
+    globalIndex + details.thread.length,
+  );
+  const peerBlueprints = selectPeerBlueprints(domainId, blueprint, globalIndex, difficulty);
+  const toChoiceText = (action: string) =>
+    `Review ${details.artifact}; ${upperFirst(sanitizeOptionText(action))}. Document the decision, owner, and next step in ${checkpoint}.`;
+  const choices: ChoiceDraft[] = [
+    {
+      text: toChoiceText(cleanAction),
+      correct: true,
+      flawType: "key",
+      rationale: `This is the strongest choice because it applies ${blueprint.principle} to the evidence in ${details.artifact}.`,
+      lureStrength: 1,
+    },
+    ...peerBlueprints.map((peer, offset) => ({
+      text: toChoiceText(peer.correct),
+      correct: false,
+      flawType: (["timing", "role", "evidence", "lifecycle", "governance"] as ChoiceDraft["flawType"][])[offset],
+      rationale: `This can be a valid action for ${peer.topic.toLowerCase()}, but the case evidence is pointing to ${blueprint.principle}.`,
+      lureStrength: difficulty === "hard" ? 5 - offset : 3 - Math.min(offset, 1),
+    })),
+  ];
 
   return shuffleOptions(
-    [
-      { text: correct, correct: true },
-      ...distractors.map((text) => ({ text, correct: false })),
-    ],
+    choices,
     `${bank}:${mode ?? "practice"}:${globalIndex}:${blueprint.topic}:${details.setting}:${details.signal}`,
     globalIndex,
   );
 }
 
 function buildPracticePrompt(blueprint: Blueprint, difficulty: Difficulty, details: CaseDetails) {
-  const topic = blueprint.topic.toLowerCase();
-  const principle = blueprint.principle.toLowerCase();
-
   if (difficulty === "easy") {
-    return `In ${details.setting}, ${details.role} reviews ${details.artifact} after ${details.signal} in the ${details.thread} workstream. Which choice best reflects ${topic}?`;
+    return `In ${details.setting}, ${details.role} reviews ${details.artifact} after ${details.signal} in the ${details.thread} workstream. Which response is the best next step?`;
   }
 
   if (difficulty === "medium") {
-    return `During ${details.setting}, ${details.stakeholder} asks ${details.role} for a decision in the ${details.thread} checkpoint because ${details.signal}. With ${details.constraint}, what should happen next to handle ${topic}?`;
+    return `During ${details.setting}, ${details.stakeholder} asks ${details.role} for a decision in the ${details.thread} checkpoint because ${details.signal}. With ${details.constraint}, what should happen next?`;
   }
 
-  return `The team in ${details.setting} faces the ${details.thread} escalation while under pressure from ${details.outcome}, ${details.constraint}, and ${details.signal}. ${details.stakeholder} suggests ${details.trap}. Which response best protects ${principle}?`;
+  return `The team in ${details.setting} faces the ${details.thread} case while under pressure from ${details.outcome}, ${details.constraint}, and ${details.signal}. ${details.stakeholder} suggests to ${details.trap}. Which response handles the situation most effectively?`;
 }
 
 function buildMockPrompt(
@@ -813,18 +918,22 @@ function buildMockPrompt(
   mode: MockModeId,
   globalIndex: number,
 ) {
-  const frame = pick(mockPromptFrames[mode][difficulty], globalIndex + details.signal.length);
-  const topic = blueprint.topic.toLowerCase();
+  const frame = pickWithoutTopicLeak(
+    mockPromptFrames[mode][difficulty],
+    globalIndex + details.signal.length,
+    blueprint.topic,
+    blueprint.correct,
+  );
 
   if (mode === "real-case") {
-    return `Simulation case during the ${details.setting}, ${details.thread} checkpoint: ${frame} ${upperFirst(details.stakeholder)} asks ${details.role} to choose a next step. Evidence from ${details.artifact} shows ${details.signal}, and ${details.constraint}. Which response best addresses ${topic}?`;
+    return `Simulation case during the ${details.setting}, ${details.thread} checkpoint: ${frame} ${upperFirst(details.stakeholder)} asks ${details.role} to choose a next step. Evidence from ${details.artifact} shows ${details.signal}, and ${details.constraint}. Which response fits the case best?`;
   }
 
   if (mode === "beyond-real") {
-    return `Advanced simulation during the ${details.setting}, ${details.thread} checkpoint: ${frame} ${upperFirst(details.role)} sees ${details.signal} while ${details.stakeholder} pushes to ${details.trap}. The available evidence is ${details.artifact}, and ${details.constraint}. What is the best CAPM-aligned response for ${topic}?`;
+    return `Advanced simulation during the ${details.setting}, ${details.thread} checkpoint: ${frame} ${upperFirst(details.role)} sees ${details.signal} while ${details.stakeholder} pushes to ${details.trap}. The available evidence is ${details.artifact}, and ${details.constraint}. What is the best CAPM-aligned response?`;
   }
 
-  return `Pressure-test case during the ${details.setting}, ${details.thread} checkpoint: ${frame} ${details.outcome} conflicts with ${details.signal}, ${details.constraint}, and a request to ${details.trap}. If the item is testing ${topic}, which answer survives the traps?`;
+  return `Pressure-test case during the ${details.setting}, ${details.thread} checkpoint: ${frame} ${details.outcome} conflicts with ${details.signal}, ${details.constraint}, and a request to ${details.trap}. Which answer is most defensible?`;
 }
 
 function buildExplanation(blueprint: Blueprint, details: CaseDetails, bank: "practice" | "mock", mode?: MockModeId) {
@@ -861,7 +970,15 @@ function createQuestion({
 }): Question {
   const blueprint = selectBlueprint(domainId, difficulty, index, globalIndex);
   const details = buildCaseDetails({ domainId, difficulty, blueprint, globalIndex, bank, mode });
-  const { options, correctIndex } = buildOptions({ blueprint, details, difficulty, globalIndex, bank, mode });
+  const { options, correctIndex, optionRationales } = buildOptions({
+    domainId,
+    blueprint,
+    details,
+    difficulty,
+    globalIndex,
+    bank,
+    mode,
+  });
   const id =
     bank === "practice"
       ? `practice-${domainId}-${difficulty}-${String(index + 1).padStart(4, "0")}`
@@ -880,6 +997,7 @@ function createQuestion({
         : buildPracticePrompt(blueprint, difficulty, details),
     options,
     correctIndex,
+    optionRationales,
     explanation: buildExplanation(blueprint, details, bank, mode),
     sourceTopic: blueprint.sourceTopic,
     bonus: bank === "practice" && difficulty === "hard" && index % 9 === 0,
